@@ -20,7 +20,7 @@ public class WebhookController {
         System.out.println("Workflow ID " + n8nError.getWorkflow_id());
         System.out.println("Fehler in Knoten " + n8nError.getFailed_node());
         System.out.println("Fehlermeldung " + n8nError.getError_message());
-        System.out.println(n8nError.getWorkflow());
+        System.out.println(n8nError.getWorkflow().toString());
 
         return ResponseEntity.ok(Map.of("status","ok","message","request was successfully"));
     }
