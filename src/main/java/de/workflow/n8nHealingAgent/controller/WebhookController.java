@@ -1,21 +1,28 @@
 package de.workflow.n8nHealingAgent.controller;
 
+import de.workflow.n8nHealingAgent.model.HealingIncident;
 import de.workflow.n8nHealingAgent.model.N8nWebhookPayload;
 import de.workflow.n8nHealingAgent.service.LlmService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
 @RequestMapping("/api/webhook")
+@CrossOrigin(origins = "*")
 public class WebhookController {
 
     private final LlmService llmService;
+    private final List<HealingIncident> incidents = new CopyOnWriteArrayList<>();
 
     public WebhookController(LlmService llmService) {
         this.llmService = llmService;
@@ -31,6 +38,25 @@ public class WebhookController {
 
         Map<String, Object> correctWorkflow = llmService.analyzeAndRepairWorkflow(n8nError);
 
+        incidents.add(new HealingIncident(n8nError, correctWorkflow));
+
         return ResponseEntity.ok(correctWorkflow);
+    }
+
+    @GetMapping("/incidents")
+    public List<HealingIncident> getIncidents() {
+        return incidents;
+    }
+
+    @PostMapping("/incidents/{id}/approve")
+    public ResponseEntity<HealingIncident> approveIncident(@PathVariable String id) {
+        return incidents.stream()
+                .filter(incident -> incident.getId().equals(id))
+                .findFirst()
+                .map(incident -> {
+                    incident.setStatus("APPROVED");
+                    return ResponseEntity.ok(incident);
+                })
+                .orElse(ResponseEntity.notFound().build());
     }
 }
