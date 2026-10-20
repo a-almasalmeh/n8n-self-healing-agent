@@ -50,11 +50,20 @@ public class WebhookController {
 
     @PostMapping("/incidents/{id}/approve")
     public ResponseEntity<HealingIncident> approveIncident(@PathVariable String id) {
+        return updateStatus(id, "APPROVED");
+    }
+
+    @PostMapping("/incidents/{id}/reject")
+    public ResponseEntity<HealingIncident> rejectIncident(@PathVariable String id) {
+        return updateStatus(id, "REJECTED");
+    }
+
+    private ResponseEntity<HealingIncident> updateStatus(String id, String status) {
         return incidents.stream()
                 .filter(incident -> incident.getId().equals(id))
                 .findFirst()
                 .map(incident -> {
-                    incident.setStatus("APPROVED");
+                    incident.setStatus(status);
                     return ResponseEntity.ok(incident);
                 })
                 .orElse(ResponseEntity.notFound().build());

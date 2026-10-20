@@ -10,16 +10,25 @@ import {
   Workflow,
   XCircle,
 } from 'lucide-react'
+import DiffView from './DiffView'
 
 const API_BASE = 'http://localhost:8080/api/webhook'
 const POLL_INTERVAL_MS = 5000
 
 type IncidentStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+type StatusFilter = 'ALL' | 'PENDING' | 'DONE'
+
+const FILTERS: { key: StatusFilter; label: string; matches: (s: IncidentStatus) => boolean }[] = [
+  { key: 'ALL', label: 'Alle', matches: () => true },
+  { key: 'PENDING', label: 'Pending', matches: (s) => s === 'PENDING' },
+  { key: 'DONE', label: 'Bearbeitet', matches: (s) => s === 'APPROVED' || s === 'REJECTED' },
+]
 
 interface HealingIncident {
   id: string
   timestamp: string
   workflow_id: string
+  workflow_name: string
   failed_node: string
   error_message: string
   original_workflow_json: unknown
@@ -43,24 +52,13 @@ function StatusBadge({ status }: { status: IncidentStatus }) {
   )
 }
 
-function JsonPanel({ title, data, accent }: { title: string; data: unknown; accent: string }) {
-  return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className={`border-b border-slate-200 px-4 py-2 text-sm font-semibold ${accent}`}>{title}</div>
-      <pre className="flex-1 overflow-auto bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
-        <code>{JSON.stringify(data, null, 2)}</code>
-      </pre>
-    </div>
-  )
-}
-
 export default function App() {
   const [incidents, setIncidents] = useState<HealingIncident[]>([])
-  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState<StatusFilter>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [approving, setApproving] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'approve' | 'reject' | null>(null)
 
   const fetchIncidents = useCallback(async () => {
     try {
@@ -82,30 +80,26 @@ export default function App() {
     return () => clearInterval(timer)
   }, [fetchIncidents])
 
-  // "Verwerfen" wird nur lokal gespeichert und überschreibt den Status aus dem Backend
-  const effectiveStatus = (incident: HealingIncident): IncidentStatus =>
-    rejectedIds.has(incident.id) ? 'REJECTED' : incident.status
-
-  const sortedIncidents = [...incidents].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+  const activeFilter = FILTERS.find((f) => f.key === filter)!
+  const visibleIncidents = [...incidents]
+    .filter((i) => activeFilter.matches(i.status))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
   const selected = incidents.find((i) => i.id === selectedId) ?? null
-  const selectedStatus = selected ? effectiveStatus(selected) : null
 
-  const approve = async (id: string) => {
-    setApproving(true)
+  const updateStatus = async (id: string, action: 'approve' | 'reject') => {
+    setPendingAction(action)
     try {
-      const res = await fetch(`${API_BASE}/incidents/${id}/approve`, { method: 'POST' })
+      const res = await fetch(`${API_BASE}/incidents/${id}/${action}`, { method: 'POST' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const updated: HealingIncident = await res.json()
       setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)))
       setError(null)
     } catch (e) {
-      setError(`Approve fehlgeschlagen (${e instanceof Error ? e.message : e})`)
+      setError(`${action === 'approve' ? 'Approve' : 'Verwerfen'} fehlgeschlagen (${e instanceof Error ? e.message : e})`)
     } finally {
-      setApproving(false)
+      setPendingAction(null)
     }
   }
-
-  const reject = (id: string) => setRejectedIds((prev) => new Set(prev).add(id))
 
   return (
     <div className="flex h-screen flex-col bg-slate-100 text-slate-900">
@@ -134,8 +128,24 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         {/* LINKE SPALTE: Incident-Liste */}
         <aside className="flex w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600">
-            Incidents ({incidents.length})
+          <div className="border-b border-slate-200 px-4 pt-3 pb-3">
+            <div className="text-sm font-semibold text-slate-600">Incidents ({incidents.length})</div>
+            <div className="mt-2 flex gap-1 rounded-lg bg-slate-100 p-1">
+              {FILTERS.map((f) => {
+                const count = incidents.filter((i) => f.matches(i.status)).length
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                      filter === f.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {f.label} <span className="text-slate-400">{count}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <ul className="flex-1 overflow-y-auto">
             {loading && (
@@ -143,13 +153,13 @@ export default function App() {
                 <Loader2 className="h-4 w-4 animate-spin" /> Lade Incidents…
               </li>
             )}
-            {!loading && incidents.length === 0 && (
+            {!loading && visibleIncidents.length === 0 && (
               <li className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-slate-500">
                 <Inbox className="h-8 w-8 text-slate-300" />
-                Noch keine Fehlerfälle eingegangen.
+                {incidents.length === 0 ? 'Noch keine Fehlerfälle eingegangen.' : 'Keine Incidents in diesem Filter.'}
               </li>
             )}
-            {sortedIncidents.map((incident) => (
+            {visibleIncidents.map((incident) => (
               <li key={incident.id}>
                 <button
                   onClick={() => setSelectedId(incident.id)}
@@ -158,14 +168,15 @@ export default function App() {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
+                    <span className="flex min-w-0 items-center gap-1.5 font-semibold">
                       <Workflow className="h-4 w-4 shrink-0 text-slate-400" />
-                      <span className="truncate">{incident.workflow_id}</span>
+                      <span className="truncate">{incident.workflow_name}</span>
                     </span>
-                    <StatusBadge status={effectiveStatus(incident)} />
+                    <StatusBadge status={incident.status} />
                   </div>
-                  <div className="mt-1 truncate text-sm text-slate-600">{incident.failed_node}</div>
-                  <div className="mt-0.5 text-xs text-slate-400">
+                  <div className="mt-0.5 truncate pl-5.5 font-mono text-xs text-slate-400">{incident.workflow_id}</div>
+                  <div className="mt-1 truncate pl-5.5 text-sm text-slate-600">{incident.failed_node}</div>
+                  <div className="mt-0.5 pl-5.5 text-xs text-slate-400">
                     {new Date(incident.timestamp).toLocaleString('de-DE')}
                   </div>
                 </button>
@@ -185,7 +196,11 @@ export default function App() {
             <>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1 rounded-lg border border-red-200 bg-red-50 p-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-red-800">
+                  <div className="flex items-center gap-2 text-base font-semibold text-red-900">
+                    <Workflow className="h-4 w-4" />
+                    {selected.workflow_name}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-red-800">
                     <AlertTriangle className="h-4 w-4" />
                     Fehler in Node: <span className="font-mono">{selected.failed_node}</span>
                   </div>
@@ -198,32 +213,33 @@ export default function App() {
                 </div>
 
                 <div className="flex shrink-0 flex-col items-end gap-2">
-                  <StatusBadge status={selectedStatus!} />
+                  <StatusBadge status={selected.status} />
                   <div className="flex gap-2">
                     <button
-                      onClick={() => reject(selected.id)}
-                      disabled={selectedStatus !== 'PENDING'}
+                      onClick={() => updateStatus(selected.id, 'reject')}
+                      disabled={selected.status !== 'PENDING' || pendingAction !== null}
                       className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <XCircle className="h-4 w-4" />
+                      {pendingAction === 'reject' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                       Verwerfen
                     </button>
                     <button
-                      onClick={() => approve(selected.id)}
-                      disabled={selectedStatus !== 'PENDING' || approving}
+                      onClick={() => updateStatus(selected.id, 'approve')}
+                      disabled={selected.status !== 'PENDING' || pendingAction !== null}
                       className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      {pendingAction === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                       Fix anwenden (Approve)
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="flex min-h-0 flex-1 gap-4">
-                <JsonPanel title="Original-Workflow" data={selected.original_workflow_json} accent="text-red-700" />
-                <JsonPanel title="Reparierter Workflow" data={selected.repaired_workflow_json} accent="text-emerald-700" />
-              </div>
+              <DiffView
+                key={selected.id}
+                original={selected.original_workflow_json}
+                repaired={selected.repaired_workflow_json}
+              />
             </>
           )}
         </main>
