@@ -167,7 +167,7 @@ Anschließend ist n8n unter <http://localhost:5678> erreichbar. Stoppen mit `doc
        "workflow": {{ JSON.stringify($json) }}
      }
      ```
-4. *Optional:* Am Ende einen Benachrichtigungs-Node anhängen, z. B. **Telegram** → *Send Message*, um bei jedem neuen Incident informiert zu werden und ihn im Dashboard zu prüfen.
+4. *optionaler Schritt:* Am Ende einen Benachrichtigungs-Node anhängen, z. B. **Telegram** → *Send Message*, um bei jedem neuen Incident informiert zu werden und ihn im Dashboard zu prüfen.
 5. Im zu überwachenden Workflow unter *Settings → Error Workflow* diesen Error Workflow auswählen.
 
 > **Hinweis:** `host.docker.internal` funktioniert unter Docker Desktop (macOS/Windows) direkt. Unter Linux muss dem n8n-Service in der `docker-compose.yml` zusätzlich `extra_hosts: ["host.docker.internal:host-gateway"]` hinzugefügt werden.
@@ -306,6 +306,7 @@ n8n-self-healing-agent/
 
 ## 6. Aktueller Stand & Einschränkungen
 
+Das Projekt ist noch in Entwicklung.
 
 - **In-Memory-Speicherung:** Incidents werden nur im Arbeitsspeicher gehalten und gehen beim Neustart des Backends verloren.
 - **Feste Konfiguration:** Ollama-URL (`http://localhost:11434`), Modell (`llama3.2`) und Backend-URL im Frontend sind im Code hinterlegt.
