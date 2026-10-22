@@ -9,7 +9,7 @@
 
 Low-Code-/No-Code-Plattformen wie [n8n](https://n8n.io) ermöglichen es auch Nutzern ohne tiefe Programmierkenntnisse, Geschäftsprozesse zu automatisieren. Die so entstehenden Workflows sind jedoch fehleranfällig: Ändert sich ein Datenformat, fällt eine API aus oder werden Zugriffslimits überschritten, bricht der Workflow ab – und ein Entwickler muss den Fehler manuell beheben.
 
-Dieses Projekt untersucht, wie ein **lokal betriebenes Large Language Model (LLM)** fehlgeschlagene Workflows analysieren und einen Reparaturvorschlag erzeugen kann. Da KI-basierte Änderungen selbst fehleranfällig sind, werden sie **nicht automatisch angewendet**: Ein Mensch prüft jeden Vorschlag in einem Review-Dashboard und gibt ihn frei oder verwirft ihn.
+Dieses Projekt untersucht, wie ein **Large Language Model (LLM)** – aktuell **Claude Opus 5.5** von Anthropic – fehlgeschlagene Workflows analysieren und einen Reparaturvorschlag erzeugen kann. Da KI-basierte Änderungen selbst fehleranfällig sind, werden sie **nicht automatisch angewendet**: Ein Mensch prüft jeden Vorschlag in einem Review-Dashboard und gibt ihn frei oder verwirft ihn.
 
 ---
 
@@ -36,13 +36,13 @@ Dieses Projekt untersucht, wie ein **lokal betriebenes Large Language Model (LLM
 │  (→ Telegram, opt.)  │                      │        │                   │
 └──────────────────────┘                      │        ▼                   │
                                               │  LlmService ───────────────┼──┐
-                                              │        │                   │  │ POST /api/generate
+                                              │        │                   │  │ Messages API (HTTPS)
                                               │        ▼                   │  │
                                               │  HealingIncident (PENDING) │  ▼
                                               │  In-Memory-Speicher        │ ┌───────────────────┐
-                                              └────────────▲───────────────┘ │  Ollama (lokal)   │
-                                                           │                 │  Llama 3.2        │
-                                         GET /incidents    │                 │  Port 11434       │
+                                              └────────────▲───────────────┘ │  Anthropic API    │
+                                                           │                 │  Claude Opus 5.5  │
+                                         GET /incidents    │                 │  (Cloud)          │
                                          POST …/approve    │                 └───────────────────┘
                                          POST …/reject     │
                                               ┌────────────┴───────────────┐
@@ -60,14 +60,14 @@ Dieses Projekt untersucht, wie ein **lokal betriebenes Large Language Model (LLM
 2. **Spring Boot Webhook**
    Der `WebhookController` nimmt den Fehler unter `POST /api/webhook/error` entgegen und übergibt ihn an den `LlmService`.
 
-3. **Lokales LLM via Ollama**
+3. **LLM via Anthropic Claude API**
    Der `LlmService` baut einen strukturierten Prompt aus fehlerhaftem Node, Fehlermeldung und Original-Workflow-JSON. Der Prompt weist das Modell an,
    - das komplette JSON 1:1 zu übernehmen (inkl. `credentials`, `webhookId`, `staticData`, `settings`, `meta` …),
    - die Struktur von `connections` nicht zu verändern,
    - alle Datentypen beizubehalten und
-   - nur die Ursache im betroffenen Node bzw. in verbundenen Sub-Nodes zu beheben.
+   - nur die Ursache im betroffenen Node bzw. in verbundenen Sub-Nodes zu beheben und
+   - ausschließlich das reparierte JSON (ohne Erklärungen oder Markdown) zurückzugeben.
 
-   Die Anfrage geht an die lokale Ollama-Instanz (`http://localhost:11434/api/generate`, Modell `llama3.2`, `format: "json"`). Es verlassen also **keine Workflow-Daten den eigenen Rechner**.
 
 4. **Human-in-the-Loop React-Dashboard**
    Aus Fehler und Reparaturvorschlag wird ein `HealingIncident` mit Status `PENDING` erzeugt. Das Dashboard fragt die Incidents alle 5 Sekunden ab und zeigt:
@@ -83,15 +83,15 @@ Dieses Projekt untersucht, wie ein **lokal betriebenes Large Language Model (LLM
 
 | Bereich | Technologie | Zweck |
 |---|---|---|
-| Backend | **Java 17**, **Spring Boot** (Spring Web MVC, `RestClient`, Jackson) | Webhook-Empfang, LLM-Anbindung, REST-API |
+| Backend | **Java 17**, **Spring Boot**  | Webhook-Empfang, REST-API |
 | Build (Backend) | Maven (Wrapper `./mvnw` enthalten) | Build & Start |
-| LLM | **Ollama** mit **Llama 3.2** | Lokale Fehleranalyse & Generierung des reparierten Workflow-JSONs |
+| LLM | **Claude Opus 5.5** über das **Anthropic Java SDK** (`anthropic-java`) | Fehleranalyse & Generierung des reparierten Workflow-JSONs |
 | Frontend | **React** + TypeScript | Human-in-the-Loop Review-Dashboard |
 | Build (Frontend) | **Vite** | Dev-Server & Bundling |
 | Styling | **Tailwind CSS**, lucide-react (Icons) | UI |
 | Diff | `diff` (npm) | Zeilenweiser Vergleich Original ↔ Reparatur |
 | Workflow-Plattform | **n8n** | Simulation fehleranfälliger Geschäftsprozesse, Error Trigger |
-| Infrastruktur | **Docker**, Docker Compose | Lokaler Betrieb von n8n (und optional Ollama) |
+| Infrastruktur | **Docker**, Docker Compose | Lokaler Betrieb von n8n |
 
 ---
 
@@ -104,7 +104,7 @@ Dieses Projekt untersucht, wie ein **lokal betriebenes Large Language Model (LLM
 | Java JDK | 17 oder neuer | `java -version` |
 | Node.js | 20.19+ bzw. 22.12+ (von Vite vorausgesetzt) | `node -v` |
 | npm | wird mit Node.js installiert | `npm -v` |
-| Ollama | aktuelle Version | `ollama --version` |
+| Anthropic API-Key | – | erstellen in der [Claude Console](https://console.anthropic.com) |
 | Docker inkl. Compose | aktuelle Version (für n8n) | `docker compose version` |
 
 Maven muss nicht separat installiert sein – das Projekt bringt den Maven Wrapper (`mvnw`) mit.
@@ -116,29 +116,17 @@ git clone https://github.com/a-almasalmeh/n8n-self-healing-agent.git
 cd n8n-self-healing-agent
 ```
 
-### Schritt 2: Ollama installieren und Llama 3.2 starten
+### Schritt 2: Anthropic API-Key hinterlegen
 
-1. Ollama installieren: <https://ollama.com/download>
-   (macOS alternativ: `brew install ollama`)
-2. Ollama-Server starten (falls nicht bereits als App im Hintergrund aktiv):
-   ```bash
-   ollama serve
-   ```
-3. Modell herunterladen:
-   ```bash
-   ollama pull llama3.2
-   ```
-4. Erreichbarkeit prüfen:
-   ```bash
-   curl http://localhost:11434/api/tags
-   ```
-   Die Antwort sollte `llama3.2` in der Modellliste enthalten.
+Das Backend liest den Schlüssel aus der Property `anthropic.api.key`. Damit er nicht im Repository landet, wird er in einer lokalen Datei abgelegt, die in `.gitignore` ausgeschlossen ist:
 
-> **Alternative mit Docker:**
-> ```bash
-> docker run -d --name ollama -p 11434:11434 -v ollama:/root/.ollama ollama/ollama
-> docker exec -it ollama ollama pull llama3.2
-> ```
+```bash
+echo "anthropic.api.key=sk-ant-..." > src/main/resources/application-local.properties
+```
+
+`application.properties` bindet diese Datei über `spring.config.import=optional:file:src/main/resources/application-local.properties` ein. Da der Pfad relativ ist, muss das Backend **aus dem Hauptverzeichnis des Repositorys** gestartet werden – sonst fehlt der Schlüssel und der Start schlägt fehl.
+
+
 
 ### Schritt 3: n8n mit Docker Compose starten
 
@@ -159,7 +147,7 @@ Anschließend ist n8n unter <http://localhost:5678> erreichbar. Stoppen mit `doc
    - URL: `http://host.docker.internal:8080/api/webhook/error`
      (n8n läuft im Container, das Backend auf dem Host)
    - Body (JSON), z. B.:
-     ```json
+     ```js
      {
        "workflow_id": "{{ $('Error Trigger').item.json.workflow.id }}",
        "failed_node": "{{ $('Error Trigger').item.json.execution.lastNodeExecuted }}",
@@ -290,9 +278,10 @@ n8n-self-healing-agent/
 │   │   ├── N8nWebhookPayload.java  # Eingehender Fehler aus n8n
 │   │   └── HealingIncident.java    # Fehler + Reparaturvorschlag + Status
 │   └── service/
-│       └── LlmService.java         # Prompt-Erstellung & Anbindung an Ollama
+│       └── LlmService.java         # Prompt-Erstellung & Anbindung an die Claude API
 ├── src/main/resources/
-│   └── application.properties
+│   ├── application.properties
+│   └── application-local.properties  # API-Key (nicht im Repository, siehe .gitignore)
 └── frontend/                       # React-Dashboard (Vite + Tailwind CSS)
     ├── package.json
     ├── vite.config.ts
@@ -309,6 +298,6 @@ n8n-self-healing-agent/
 Das Projekt ist noch in Entwicklung.
 
 - **In-Memory-Speicherung:** Incidents werden nur im Arbeitsspeicher gehalten und gehen beim Neustart des Backends verloren.
-- **Feste Konfiguration:** Ollama-URL (`http://localhost:11434`), Modell (`llama3.2`) und Backend-URL im Frontend sind im Code hinterlegt.
+- **Feste Konfiguration:** Modell (`claude-opus-5-5`), Effort und Token-Limit sowie die Backend-URL im Frontend sind im Code hinterlegt.
+- **Externe API:** Workflow-Daten werden an die Anthropic API gesendet; jeder Reparaturversuch verursacht API-Kosten.
 - **Synchrone Verarbeitung:** Der Aufruf von `POST /error` blockiert, bis das LLM geantwortet hat.
-- **Keine Authentifizierung:** Die API ist für den lokalen Testbetrieb gedacht und ungeschützt.
