@@ -14,6 +14,9 @@ public class HealingIncident {
     private final Map<String, Object> original_workflow_json;
     private final Map<String, Object> repaired_workflow_json;
     private volatile String status;
+    private long startTime;
+    private long resolvedTime;
+    private long llmDurationMs;
 
     public HealingIncident(N8nWebhookPayload payload, Map<String, Object> repaired_workflow_json) {
         this.id = UUID.randomUUID().toString();
@@ -65,6 +68,30 @@ public class HealingIncident {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public long getStartTime (){
+        return startTime;
+    }
+
+    public void setStartTime (long startTime){
+        this.startTime = startTime;
+    }
+
+    public long getResolvedTime() {
+        return resolvedTime;
+    }
+
+    public void setResolvedTime(long resolvedTime) {
+        this.resolvedTime = resolvedTime;
+    }
+
+    public long getLlmDurationMs() {
+        return llmDurationMs;
+    }
+
+    public void setLlmDurationMs(long llmDurationMs) {
+        this.llmDurationMs = llmDurationMs;
     }
 
     private static String extractWorkflowName(Map<String, Object> workflow) {
